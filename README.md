@@ -45,6 +45,6 @@ To build and compile the application manually using Android Studio:
 
 ---
 
-### 📜 License
+###  License
 
 This project is licensed under the strict copyleft **GNU General Public License v3 (GPLv3)**. Any modifications, extensions, or redistribution of this software codebase must remain entirely open-source and free to the public domain under the exact same legal terms. 
