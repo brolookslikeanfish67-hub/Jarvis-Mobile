@@ -1,172 +1,72 @@
-package com.jarvis.assistant
+package com.jarvis.mobile // Make sure this matches your project's actual package name
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import com.jarvis.assistant.data.JarvisConfig
-import com.jarvis.assistant.data.JarvisResponse
-import com.jarvis.assistant.engine.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import java.io.File
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class JarvisIntentLauncher(private val context: Context) {
 
-    private val context = application.applicationContext
-    val llmEngine = LLMEngine(context)
-    val speechEngine = SpeechEngine(context)
-    val rizzEngine = RizzEngine(context, llmEngine)
-    val downloader = ModelDownloader(context)
+    /**
+     * Processes text from the local DeepSeek engine. 
+     * If the phrase contains search keywords, it launches DuckDuckGo.
+     * Otherwise, it defaults to launching standard local Android apps.
+     */
+    fun processJarvisCommand(rawModelOutput: String) {
+        val command = rawModelOutput.trim().lowercase()
 
-    private val _uiState = MutableStateFlow<JarvisResponse>(JarvisResponse.Idle)
-    val uiState: StateFlow<JarvisResponse> = _uiState.asStateFlow()
+        // Check if the user is asking to look something up online
+        if (command.startsWith("search for") || command.startsWith("google") || command.startsWith("duckduckgo")) {
+            // Clean up the text to extract just the core search query
+            val cleanQuery = rawModelOutput
+                .replace("search for", "", ignoreCase = true)
+                .replace("google", "", ignoreCase = true)
+                .replace("duckduckgo", "", ignoreCase = true)
+                .trim()
 
-    private val _isRizzMode = MutableStateFlow(false)
-    val isRizzMode: StateFlow<Boolean> = _isRizzMode.asStateFlow()
-
-    private val _transcript = MutableStateFlow("")
-    val transcript: StateFlow<String> = _transcript
-
-    private val _llmOutput = MutableStateFlow("")
-    val llmOutput: StateFlow<String> = _llmOutput
-
-    private val _downloadProgress = MutableStateFlow(0)
-    val downloadProgress: StateFlow<Int> = _downloadProgress
-
-    private val _downloadStatus = MutableStateFlow<ModelDownloader.DownloadStatus>(ModelDownloader.DownloadStatus.Idle)
-    val downloadStatus: StateFlow<ModelDownloader.DownloadStatus> = _downloadStatus
-
-    init {
-        speechEngine.initialize()
-        checkAndDownloadModel()
-    }
-
-    private fun checkAndDownloadModel() {
-        viewModelScope.launch {
-            val modelFile = File(context.filesDir, JarvisConfig.MODEL_FILE_NAME)
-            if (modelFile.exists() && modelFile.length() > 0) {
-                // Model already present -> load it
-                loadModel(modelFile.absolutePath)
+            if (cleanQuery.isNotEmpty()) {
+                launchDuckDuckGoSearch(cleanQuery)
             } else {
-                // Start download
-                _uiState.value = JarvisResponse.Text(" Downloading DeepSeek model (~1GB). Please wait...")
-                val result = downloader.downloadModel(modelFile)
-                if (result.isSuccess) {
-                    loadModel(modelFile.absolutePath)
-                } else {
-                    _uiState.value = JarvisResponse.Error("Download failed: ${result.exceptionOrNull()?.message}")
-                }
+                Toast.makeText(context, "Jarvis: What would you like me to search for?", Toast.LENGTH_SHORT).show()
             }
-        }
-
-        // Observe downloader progress for UI
-        viewModelScope.launch {
-            downloader.progress.collect { progress ->
-                _downloadProgress.value = progress
-            }
-        }
-        viewModelScope.launch {
-            downloader.status.collect { status ->
-                _downloadStatus.value = status
-                when (status) {
-                    is ModelDownloader.DownloadStatus.Progress -> {
-                        _uiState.value = JarvisResponse.Text(" Downloading: ${status.percent}% (${status.downloaded / 1024 / 1024} MB / ${status.total / 1024 / 1024} MB)")
-                    }
-                    is ModelDownloader.DownloadStatus.Error -> {
-                        _uiState.value = JarvisResponse.Error("Download error: ${status.message}")
-                    }
-                    ModelDownloader.DownloadStatus.Completed -> {
-                        _uiState.value = JarvisResponse.Text(" Download complete! Loading model...")
-                    }
-                    else -> {}
-                }
-            }
-        }
-    }
-
-    private suspend fun loadModel(modelPath: String) {
-        val result = llmEngine.initialize(modelPath)
-        if (result.isSuccess) {
-            _uiState.value = JarvisResponse.Text("Jarvis ready. How can I help?")
         } else {
-            _uiState.value = JarvisResponse.Error("Failed to load model: ${result.exceptionOrNull()?.message}")
+            // Fallback to the default Jarvis-Mobile local app launcher behavior
+            launchLocalAndroidApp(rawModelOutput)
         }
     }
 
-    fun processVoiceInput() {
-        if (speechEngine.isListening.value) {
-            speechEngine.stopListening()
-            return
-        }
-        speechEngine.startListening { transcript ->
-            _transcript.value = transcript
-            if (transcript.isNotEmpty()) processUserInput(transcript)
-        }
-    }
+    /**
+     * Formats the query text and safely opens the external web browser to DuckDuckGo results.
+     */
+    private fun launchDuckDuckGoSearch(searchQuery: String) {
+        try {
+            // Encode spaces and special characters for a clean web URL structure
+            val encodedQuery = java.net.URLEncoder.encode(searchQuery, "UTF-8")
+            val webUri = Uri.parse("https://duckduckgo.com")
 
-    fun processUserInput(text: String) {
-        if (!llmEngine.isModelLoaded.value) {
-            _uiState.value = JarvisResponse.Error("Model not loaded. Please wait.")
-            return
-        }
-        _uiState.value = JarvisResponse.Loading
-        llmEngine.clearOutput()
-
-        val systemPrompt = if (_isRizzMode.value) JarvisConfig.RIZZ_SYSTEM_PROMPT else JarvisConfig.SYSTEM_PROMPT
-        llmEngine.generate(text, systemPrompt) {
-            val response = llmEngine.outputText.value
-            val command = CommandParser.parseLaunchCommand(response)
-            if (command != null) {
-                val launched = CommandParser.launchApp(context, command.packageName)
-                _uiState.value = if (launched) {
-                    JarvisResponse.Command(command.packageName, response)
-                } else {
-                    JarvisResponse.Error("App not found: ${command.packageName}")
-                }
-            } else {
-                _uiState.value = JarvisResponse.Text(response)
+            // Create a general VIEW action intent to open an external web browser
+            val searchIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
+                // Ensuring the task opens neatly on top of Jarvis
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            _llmOutput.value = response
+
+            context.startActivity(searchIntent)
+
+        } catch (e: Exception) {
+            Toast.makeText(context, "Jarvis failed to launch search: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
 
-    fun generateRizz(userDescription: String) {
-        if (!llmEngine.isModelLoaded.value) {
-            _uiState.value = JarvisResponse.Error("Model not loaded. Please wait.")
-            return
-        }
-        _uiState.value = JarvisResponse.Loading
-        _isRizzMode.value = true
-        rizzEngine.generateOpener(userDescription) { opener, success ->
-            _uiState.value = if (success) {
-                JarvisResponse.Rizz(opener, true)
-            } else {
-                JarvisResponse.Error("Failed to generate or launch Tinder")
-            }
-            _llmOutput.value = opener
-        }
-    }
-
-    fun toggleRizzMode() {
-        _isRizzMode.value = !_isRizzMode.value
-        _uiState.value = if (_isRizzMode.value) {
-            JarvisResponse.Text(" Rizz Mode activated! Describe your match.")
+    /**
+     * Baseline Jarvis-Mobile placeholder method for switching apps locally.
+     */
+    private fun launchLocalAndroidApp(appName: String) {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(appName)
+        if (launchIntent != null) {
+            context.startActivity(launchIntent)
         } else {
-            JarvisResponse.Text(" Jarvis mode activated.")
+            // If it's not a clear app package, treat it as general creative text output
+            Toast.makeText(context, "Processing text: $appName", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    fun clearConversation() {
-        llmEngine.clearOutput()
-        _llmOutput.value = ""
-        _uiState.value = JarvisResponse.Idle
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        speechEngine.destroy()
-        llmEngine.close()
     }
 }
