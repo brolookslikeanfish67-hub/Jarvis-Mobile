@@ -1,21 +1,21 @@
-name: Automated Release
+name:  Automated Release
 
 on:
   push:
     branches:
-      - main # Fires automatically every time you click "Commit" on the web UI
+      - main
 
 jobs:
   auto-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Essential permission to let GitHub generate tags and releases natively
+      contents: write
 
     steps:
     - name: Checkout Repository Source
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0 # Pulls full commit history to correctly structure version sequences
+        fetch-depth: 0
 
     - name: Configure Java Development Kit 17
       uses: actions/setup-java@v4
@@ -24,15 +24,16 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
+    # Fix: Generates a clean Gradle ecosystem on the virtual runner from scratch
     - name: Initialize Compilation Infrastructure
       run: |
-        gradle wrapper
+        gradle wrapper --gradle-version 8.2
         chmod +x gradlew
 
+    # Fix: Forces the bundle to compile with debug signing configs so it doesn't crash on exit code 1
     - name: Compile Official Android App Bundle (.AAB)
-      run: ./gradlew bundleRelease --no-daemon
+      run: ./gradlew app:bundleRelease -Pandroid.injected.signing.store.file="" --no-daemon
 
-    # Automatically calculates the next version tag string based on build counts
     - name: Calculate Dynamic Version Tag
       id: version_tag
       run: echo "tag=v1.0.${{ github.run_number }}" >> $GITHUB_OUTPUT
@@ -43,6 +44,8 @@ jobs:
         artifacts: "app/build/outputs/bundle/release/app-release.aab"
         tag: ${{ steps.version_tag.outputs.tag }}
         name: "${{ steps.version_tag.outputs.tag }}"
+        allowUpdates: true
+        removeArtifacts: true
         body: |
           # Jarvis-Mobile ${{ steps.version_tag.outputs.tag }}
 
