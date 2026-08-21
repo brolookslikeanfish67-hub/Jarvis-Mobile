@@ -1,19 +1,21 @@
-name:  Release Bundle Build
+name: Automated Release
 
 on:
   push:
-    tags:
-      - 'v*' # Fires automatically when you push a tag like v1.0.0
+    branches:
+      - main # Fires automatically every time you click "Commit" on the web UI
 
 jobs:
-  release-build:
+  auto-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Grants full security permissions to write to your release track
+      contents: write # Essential permission to let GitHub generate tags and releases natively
 
     steps:
     - name: Checkout Repository Source
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Pulls full commit history to correctly structure version sequences
 
     - name: Configure Java Development Kit 17
       uses: actions/setup-java@v4
@@ -22,7 +24,6 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    # Bypasses local wrapper file permissions by passing compilation directly through gradle
     - name: Initialize Compilation Infrastructure
       run: |
         gradle wrapper
@@ -31,14 +32,19 @@ jobs:
     - name: Compile Official Android App Bundle (.AAB)
       run: ./gradlew bundleRelease --no-daemon
 
-    - name: Generate Automated System Release
+    # Automatically calculates the next version tag string based on build counts
+    - name: Calculate Dynamic Version Tag
+      id: version_tag
+      run: echo "tag=v1.0.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+    - name: Compile and Publish Complete Release
       uses: ncipollo/release-action@v1
       with:
         artifacts: "app/build/outputs/bundle/release/app-release.aab"
-        tag: ${{ github.ref_name }}
-        name: "${{ github.ref_name }}"
+        tag: ${{ steps.version_tag.outputs.tag }}
+        name: "${{ steps.version_tag.outputs.tag }}"
         body: |
-          # Jarvis-Mobile ${{ github.ref_name }}
+          # Jarvis-Mobile ${{ steps.version_tag.outputs.tag }}
 
           An offline, privacy-first AI voice assistant and app launcher for Android devices. This release introduces a local web search routing engine.
 
