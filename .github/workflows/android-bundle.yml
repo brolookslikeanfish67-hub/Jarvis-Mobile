@@ -17,7 +17,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    # Updated to v5 to fix the Node.js runner deprecation crash
     - name: Configure Java Development Kit 17
       uses: actions/setup-java@v5
       with:
@@ -25,13 +24,15 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    # Securely unlocks permissions using the codebase's original wrapper script
-    - name: Initialize Compilation Infrastructure
-      run: |
-        chmod +x gradlew
+    # Fix: Installs a clean, global Gradle engine directly onto the GitHub virtual runner
+    - name: Setup Global Gradle Engine
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: 8.2
 
+    # Fix: Compiles using the global 'gradle' command instead of the missing local './gradlew'
     - name: Compile Official Android App Bundle (.AAB)
-      run: ./gradlew app:bundleRelease -Pandroid.injected.signing.store.file="" --no-daemon
+      run: gradle app:bundleRelease -Pandroid.injected.signing.store.file="" --no-daemon
 
     - name: Calculate Dynamic Version Tag
       id: version_tag
