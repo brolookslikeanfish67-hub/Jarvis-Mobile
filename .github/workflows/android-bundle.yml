@@ -1,0 +1,42 @@
+name: Auto make Android App Bundle (.AAB)
+
+# an bot to make an .aab file
+on:
+  push:
+    branches: [ "main" ]
+  release:
+    types: [ published ]
+
+jobs:
+  build-bundle:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Downloads a copy of  Jarvis-Mobile code 
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Sets up Java 17 (Required for modern Android compilation)
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    # 3. Makes the Gradle wrapper wrapper executable so Linux can run it
+    - name: Grant Execute Permission for Gradlew
+      run: chmod +x gradlew
+
+    # 4. Compiles the official Google Android App Bundle (.aab) format
+    - name: Build Release App Bundle (.AAB)
+      run: ./gradlew bundleRelease
+
+    # 5. Automatically uploads the finished .aab bundle file straight into your GitHub Release
+    - name: Upload Bundle to GitHub Release
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: app/build/outputs/bundle/release/app-release.aab
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
