@@ -1,42 +1,53 @@
-name: Auto make Android App Bundle (.AAB)
+name:  Release Bundle Build
 
-# an bot to make an .aab file
 on:
   push:
-    branches: [ "main" ]
-  release:
-    types: [ published ]
+    tags:
+      - 'v*' # Fires automatically when you push a tag like v1.0.0
 
 jobs:
-  build-bundle:
+  release-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Grants full security permissions to write to your release track
 
     steps:
-    # 1. Downloads a copy of  Jarvis-Mobile code 
-    - name: Checkout Code
+    - name: Checkout Repository Source
       uses: actions/checkout@v4
 
-    # 2. Sets up Java 17 (Required for modern Android compilation)
-    - name: Set up JDK 17
+    - name: Configure Java Development Kit 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: gradle
 
-    # 3. Makes the Gradle wrapper wrapper executable so Linux can run it
-    - name: Grant Execute Permission for Gradlew
-      run: chmod +x gradlew
+    # Bypasses local wrapper file permissions by passing compilation directly through gradle
+    - name: Initialize Compilation Infrastructure
+      run: |
+        gradle wrapper
+        chmod +x gradlew
 
-    # 4. Compiles the official Google Android App Bundle (.aab) format
-    - name: Build Release App Bundle (.AAB)
-      run: ./gradlew bundleRelease
+    - name: Compile Official Android App Bundle (.AAB)
+      run: ./gradlew bundleRelease --no-daemon
 
-    # 5. Automatically uploads the finished .aab bundle file straight into your GitHub Release
-    - name: Upload Bundle to GitHub Release
-      if: github.event_name == 'release'
-      uses: softprops/action-gh-release@v2
+    - name: Generate Automated System Release
+      uses: ncipollo/release-action@v1
       with:
-        files: app/build/outputs/bundle/release/app-release.aab
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        artifacts: "app/build/outputs/bundle/release/app-release.aab"
+        tag: ${{ github.ref_name }}
+        name: "${{ github.ref_name }}"
+        body: |
+          # Jarvis-Mobile ${{ github.ref_name }}
+
+          An offline, privacy-first AI voice assistant and app launcher for Android devices. This release introduces a local web search routing engine.
+
+          ### Changes
+          * Integrated local intent routing to hand off web searches directly to DuckDuckGo.
+          * Configured local prompt routing pipeline for search keyword detection.
+          * Retained fully offline local inference fallback structure for device safety.
+
+          ### System Requirements
+          * **Minimum RAM:** 8GB
+          * **Model Requirement:** Download `DeepSeek-R1-Distill-Llama-8B-abliterated.Q4_K_M.gguf` from Hugging Face and place it in the `app/src/main/assets/` directory before building.
+        token: ${{ secrets.GITHUB_TOKEN }}
