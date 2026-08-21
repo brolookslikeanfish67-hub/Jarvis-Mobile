@@ -31,6 +31,3 @@
 3. **Build:** Connect your device and run the app via USB debugging.
 
 ---
-
-## 📜 License
-This project is licensed under the **GNU General Public License v3 (GPLv3)**.
