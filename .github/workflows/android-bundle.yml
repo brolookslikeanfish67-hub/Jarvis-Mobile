@@ -17,20 +17,19 @@ jobs:
       with:
         fetch-depth: 0
 
+    # Updated to v5 to fix the Node.js runner deprecation crash
     - name: Configure Java Development Kit 17
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: gradle
 
-    # Fix: Generates a clean Gradle ecosystem on the virtual runner from scratch
+    # Securely unlocks permissions using the codebase's original wrapper script
     - name: Initialize Compilation Infrastructure
       run: |
-        gradle wrapper --gradle-version 8.2
         chmod +x gradlew
 
-    # Fix: Forces the bundle to compile with debug signing configs so it doesn't crash on exit code 1
     - name: Compile Official Android App Bundle (.AAB)
       run: ./gradlew app:bundleRelease -Pandroid.injected.signing.store.file="" --no-daemon
 
